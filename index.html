@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>ツムツム プレミアムBOX完売チェッカー</title>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
 <style>
 *{box-sizing:border-box}
 :root{--card:#f4f4f8;--line:#e5e5e8;--muted:#8e8e93;--blue:#0a84ff;--green:#34c759}
@@ -37,6 +38,14 @@ h1{font-size:21px;margin:0 0 14px}
 .actions{display:flex;gap:8px;margin:12px 0;flex-wrap:wrap}
 .btn{border:0;border-radius:11px;padding:10px 12px;background:#f2f2f7;font-weight:700}
 .note{font-size:12px;color:var(--muted);line-height:1.55;margin-top:14px}
+.filebtn{display:inline-block;border:0;border-radius:11px;padding:10px 12px;background:var(--blue);color:#fff;font-weight:700;cursor:pointer}
+input[type=file]{display:none}
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:50;padding:18px;overflow:auto}
+.sheet{background:#fff;border-radius:20px;max-width:560px;margin:6vh auto;padding:18px}
+.status{font-size:13px;color:var(--muted);margin:8px 0 12px}
+.detectRow{display:grid;grid-template-columns:1fr 76px 40px;gap:8px;align-items:center;border-bottom:1px solid var(--line);padding:9px 0}
+.detectRow select,.detectRow input{width:100%;padding:9px;border:1px solid #d7d7dc;border-radius:10px;background:#fff;font-size:15px}
+.sheetActions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}.primary{background:var(--blue);color:#fff}
 @media(max-width:520px){
   .app{padding:18px 12px 70px}
   .sum .val{font-size:19px}
@@ -83,6 +92,8 @@ h1{font-size:21px;margin:0 0 14px}
 </div>
 
 <div class="actions">
+  <label class="filebtn" for="gachaShot">ガチャ画面から反映</label>
+  <input id="gachaShot" type="file" accept="image/*" multiple>
   <button class="btn" onclick="resetInitial()">画像の初期データに戻す</button>
   <button class="btn" onclick="backupData()">バックアップ</button>
 </div>
@@ -2167,6 +2178,18 @@ h1{font-size:21px;margin:0 0 14px}
 <div class="note">スキルLvを変更すると、選択した瞬間にそのツムの残り体数・必要コインと、上部4項目を即座に再計算します。残り体数は直接入力できません。</div>
 </div>
 
+<div class="modal" id="gachaModal">
+  <div class="sheet">
+    <h2>ガチャ結果を読み取り</h2>
+    <div class="status" id="gachaStatus">画像を選択してください。</div>
+    <div id="gachaResults"></div>
+    <div class="sheetActions">
+      <button class="btn primary" onclick="applyGachaResults()">この内容で反映</button>
+      <button class="btn" onclick="closeGachaModal()">キャンセル</button>
+    </div>
+  </div>
+</div>
+
 <script>
 var DATA = [{"no": 1, "name": "スティッチ", "display": "スティッチ", "max": 34, "remaining": 30, "skill": "2.33", "reqs": [2, 3, 4, 6, 18], "acquired": 4}, {"no": 2, "name": "スクランプ", "display": "スクランプ", "max": 28, "remaining": 27, "skill": "1.00", "reqs": [2, 3, 4, 6, 12], "acquired": 1}, {"no": 3, "name": "マリー", "display": "マリー", "max": 30, "remaining": 22, "skill": "3.50", "reqs": [2, 3, 4, 6, 14], "acquired": 8}, {"no": 4, "name": "レディ", "display": "レディ", "max": 28, "remaining": 18, "skill": "4.00", "reqs": [2, 3, 4, 6, 12], "acquired": 10}, {"no": 5, "name": "ウッディ", "display": "ウッディ", "max": 34, "remaining": 26, "skill": "3.50", "reqs": [2, 3, 4, 6, 18], "acquired": 8}, {"no": 6, "name": "バズ", "display": "バズ・ライトイヤー", "max": 32, "remaining": 28, "skill": "2.33", "reqs": [2, 3, 4, 6, 16], "acquired": 4}, {"no": 7, "name": "ジェシー", "display": "ジェシー", "max": 34, "remaining": 29, "skill": "2.66", "reqs": [2, 3, 4, 6, 18], "acquired": 5}, {"no": 8, "name": "ロッツォ", "display": "ロッツォ", "max": 36, "remaining": 33, "skill": "2.00", "reqs": [2, 3, 4, 6, 20], "acquired": 3}, {"no": 9, "name": "マイク", "display": "マイク", "max": 34, "remaining": 29, "skill": "2.66", "reqs": [2, 3, 4, 6, 18], "acquired": 5}, {"no": 10, "name": "サリー(Mインク)", "display": "青サリー", "max": 36, "remaining": 32, "skill": "2.33", "reqs": [2, 3, 4, 6, 20], "acquired": 4}, {"no": 11, "name": "ダンボ", "display": "ダンボ", "max": 34, "remaining": 32, "skill": "1.50", "reqs": [2, 3, 4, 6, 18], "acquired": 2}, {"no": 12, "name": "アリス", "display": "アリス", "max": 36, "remaining": 30, "skill": "3.00", "reqs": [2, 3, 4, 6, 20], "acquired": 6}, {"no": 13, "name": "白兎", "display": "白うさぎ", "max": 32, "remaining": 27, "skill": "2.66", "reqs": [2, 3, 4, 6, 16], "acquired": 5}, {"no": 14, "name": "チェシャ", "display": "チェシャ猫", "max": 30, "remaining": 25, "skill": "2.66", "reqs": [2, 3, 4, 6, 14], "acquired": 5}, {"no": 15, "name": "ヤンオイ", "display": "ヤングオイスター", "max": 36, "remaining": 30, "skill": "3.00", "reqs": [2, 3, 4, 6, 20], "acquired": 6}, {"no": 16, "name": "ティンク", "display": "ティンカーベル", "max": 35, "remaining": 28, "skill": "3.25", "reqs": [2, 3, 4, 6, 19], "acquired": 7}, {"no": 17, "name": "バンビ", "display": "バンビ", "max": 32, "remaining": 28, "skill": "2.33", "reqs": [2, 3, 4, 6, 16], "acquired": 4}, {"no": 18, "name": "とんすけ", "display": "とんすけ", "max": 34, "remaining": 31, "skill": "2.00", "reqs": [2, 3, 4, 6, 18], "acquired": 3}, {"no": 19, "name": "ミスバニー", "display": "ミス・バニー", "max": 34, "remaining": 34, "skill": "未所持", "reqs": [2, 3, 4, 6, 18], "acquired": 0}, {"no": 20, "name": "エルサ", "display": "エルサ", "max": 34, "remaining": 27, "skill": "3.25", "reqs": [2, 3, 4, 6, 18], "acquired": 7}, {"no": 21, "name": "アナ", "display": "アナ", "max": 34, "remaining": 33, "skill": "1.00", "reqs": [2, 3, 4, 6, 18], "acquired": 1}, {"no": 22, "name": "オラフ", "display": "オラフ", "max": 34, "remaining": 31, "skill": "2.00", "reqs": [2, 3, 4, 6, 18], "acquired": 3}, {"no": 23, "name": "スヴェン", "display": "スヴェン", "max": 32, "remaining": 29, "skill": "2.00", "reqs": [2, 3, 4, 6, 16], "acquired": 3}, {"no": 24, "name": "マレフィセント", "display": "マレフィセント", "max": 36, "remaining": 31, "skill": "2.66", "reqs": [2, 3, 4, 6, 20], "acquired": 5}, {"no": 25, "name": "アリエル", "display": "アリエル", "max": 34, "remaining": 30, "skill": "2.33", "reqs": [2, 3, 4, 6, 18], "acquired": 4}, {"no": 26, "name": "フランダー", "display": "フランダー", "max": 32, "remaining": 27, "skill": "2.66", "reqs": [2, 3, 4, 6, 16], "acquired": 5}, {"no": 27, "name": "セバスチャン", "display": "セバスチャン", "max": 32, "remaining": 28, "skill": "2.33", "reqs": [2, 3, 4, 6, 16], "acquired": 4}, {"no": 28, "name": "ラプンツェル", "display": "ラプンツェル", "max": 34, "remaining": 31, "skill": "2.00", "reqs": [2, 3, 4, 6, 18], "acquired": 3}, {"no": 29, "name": "パスカル", "display": "パスカル", "max": 32, "remaining": 26, "skill": "3.00", "reqs": [2, 3, 4, 6, 16], "acquired": 6}, {"no": 30, "name": "ベイマックス", "display": "ベイマックス", "max": 34, "remaining": 27, "skill": "3.25", "reqs": [2, 3, 4, 6, 18], "acquired": 7}, {"no": 31, "name": "ベル", "display": "ベル", "max": 35, "remaining": 30, "skill": "3.25", "reqs": [1, 2, 4, 7, 20], "acquired": 5}, {"no": 32, "name": "野獣", "display": "野獣", "max": 36, "remaining": 32, "skill": "3.00", "reqs": [1, 2, 4, 7, 21], "acquired": 4}, {"no": 33, "name": "サプエル", "display": "サプライズエルサ", "max": 36, "remaining": 24, "skill": "4.57", "reqs": [1, 2, 4, 7, 21], "acquired": 12}, {"no": 34, "name": "バースデーアナ", "display": "バースデーアナ", "max": 36, "remaining": 32, "skill": "3.00", "reqs": [1, 2, 4, 7, 21], "acquired": 4}, {"no": 35, "name": "エンジェル", "display": "エンジェル", "max": 36, "remaining": 32, "skill": "3.00", "reqs": [1, 2, 4, 7, 21], "acquired": 4}, {"no": 36, "name": "マックィーン", "display": "マックィーン", "max": 36, "remaining": 30, "skill": "3.50", "reqs": [1, 2, 4, 7, 21], "acquired": 6}, {"no": 37, "name": "メーター", "display": "メーター", "max": 36, "remaining": 26, "skill": "4.28", "reqs": [1, 2, 4, 7, 21], "acquired": 10}, {"no": 38, "name": "レックス", "display": "レックス", "max": 36, "remaining": 28, "skill": "4.00", "reqs": [1, 2, 4, 7, 21], "acquired": 8}, {"no": 39, "name": "ランドール", "display": "ランドール", "max": 36, "remaining": 33, "skill": "2.50", "reqs": [1, 2, 4, 7, 21], "acquired": 3}, {"no": 40, "name": "トリトン王", "display": "トリトン王", "max": 36, "remaining": 34, "skill": "2.00", "reqs": [1, 2, 4, 7, 21], "acquired": 2}, {"no": 41, "name": "アラジン", "display": "アラジン", "max": 36, "remaining": 34, "skill": "2.00", "reqs": [1, 2, 4, 7, 21], "acquired": 2}, {"no": 42, "name": "ジャスミン", "display": "ジャスミン", "max": 36, "remaining": 33, "skill": "2.50", "reqs": [1, 2, 4, 7, 21], "acquired": 3}, {"no": 43, "name": "ジーニー", "display": "ジーニー", "max": 36, "remaining": 30, "skill": "3.50", "reqs": [1, 2, 4, 7, 21], "acquired": 6}, {"no": 44, "name": "ピノキオ", "display": "ピノキオ", "max": 36, "remaining": 32, "skill": "3.00", "reqs": [1, 2, 4, 7, 21], "acquired": 4}, {"no": 45, "name": "白雪姫", "display": "白雪姫", "max": 32, "remaining": 21, "skill": "4.37", "reqs": [1, 2, 4, 8, 16], "acquired": 11}, {"no": 46, "name": "オーロラ姫", "display": "オーロラ姫", "max": 32, "remaining": 28, "skill": "3.00", "reqs": [1, 2, 4, 8, 16], "acquired": 4}, {"no": 47, "name": "シンバ", "display": "シンバ", "max": 32, "remaining": 26, "skill": "3.50", "reqs": [1, 2, 4, 8, 16], "acquired": 6}, {"no": 48, "name": "ナラ", "display": "ナラ", "max": 32, "remaining": 27, "skill": "3.25", "reqs": [1, 2, 4, 8, 16], "acquired": 5}, {"no": 49, "name": "スカー", "display": "スカー", "max": 36, "remaining": 31, "skill": "3.25", "reqs": [1, 2, 4, 8, 20], "acquired": 5}, {"no": 50, "name": "アースラ", "display": "アースラ", "max": 36, "remaining": 32, "skill": "3.00", "reqs": [1, 2, 4, 8, 20], "acquired": 4}, {"no": 51, "name": "女王", "display": "女王", "max": 36, "remaining": 29, "skill": "3.75", "reqs": [1, 2, 4, 8, 20], "acquired": 7}, {"no": 52, "name": "マレドラ", "display": "マレフィセントドラゴン", "max": 36, "remaining": 33, "skill": "2.50", "reqs": [1, 2, 4, 8, 20], "acquired": 3}, {"no": 53, "name": "ジュディ", "display": "ジュディ", "max": 32, "remaining": 27, "skill": "3.25", "reqs": [1, 2, 4, 8, 16], "acquired": 5}, {"no": 54, "name": "ニック", "display": "ニック", "max": 32, "remaining": 25, "skill": "3.75", "reqs": [1, 2, 4, 8, 16], "acquired": 7}, {"no": 55, "name": "フィニック", "display": "フィニック", "max": 29, "remaining": 20, "skill": "4.14", "reqs": [1, 2, 4, 7, 14], "acquired": 9}, {"no": 56, "name": "シンデレラ", "display": "シンデレラ", "max": 32, "remaining": 27, "skill": "3.25", "reqs": [1, 2, 4, 8, 16], "acquired": 5}, {"no": 57, "name": "ゴッドマザー", "display": "フェアリー・ゴッドマザー", "max": 36, "remaining": 30, "skill": "3.50", "reqs": [1, 2, 4, 8, 20], "acquired": 6}, {"no": 58, "name": "ハート女王", "display": "ハートの女王", "max": 36, "remaining": 26, "skill": "4.25", "reqs": [1, 2, 4, 8, 20], "acquired": 10}, {"no": 59, "name": "マッドハッター", "display": "マッドハッター", "max": 32, "remaining": 25, "skill": "3.75", "reqs": [1, 2, 4, 8, 16], "acquired": 7}, {"no": 60, "name": "ニモ", "display": "ニモ", "max": 32, "remaining": 25, "skill": "3.75", "reqs": [1, 2, 4, 8, 16], "acquired": 7}, {"no": 61, "name": "ドリー", "display": "ドリー", "max": 32, "remaining": 29, "skill": "2.50", "reqs": [1, 2, 4, 8, 16], "acquired": 3}, {"no": 62, "name": "クラッシュ", "display": "クラッシュ", "max": 32, "remaining": 31, "skill": "1.00", "reqs": [1, 2, 4, 8, 16], "acquired": 1}, {"no": 63, "name": "フック船長", "display": "フック船長", "max": 36, "remaining": 32, "skill": "3.00", "reqs": [1, 2, 4, 8, 20], "acquired": 4}, {"no": 64, "name": "クルエラ", "display": "クルエラ", "max": 36, "remaining": 31, "skill": "3.25", "reqs": [1, 2, 4, 8, 20], "acquired": 5}, {"no": 65, "name": "ジャファー", "display": "ジャファー", "max": 36, "remaining": 33, "skill": "2.50", "reqs": [1, 2, 4, 8, 20], "acquired": 3}, {"no": 66, "name": "モアナ", "display": "モアナ", "max": 29, "remaining": 24, "skill": "3.25", "reqs": [1, 2, 4, 7, 14], "acquired": 5}, {"no": 67, "name": "マウイ", "display": "マウイ", "max": 29, "remaining": 19, "skill": "4.28", "reqs": [1, 2, 4, 7, 14], "acquired": 10}, {"no": 68, "name": "ヘラクレス", "display": "ヘラクレス", "max": 29, "remaining": 25, "skill": "3.00", "reqs": [1, 2, 4, 7, 14], "acquired": 4}, {"no": 69, "name": "ハデス", "display": "ハデス", "max": 36, "remaining": 31, "skill": "3.25", "reqs": [1, 2, 4, 8, 20], "acquired": 5}, {"no": 70, "name": "フィリップ", "display": "フィリップ王子", "max": 29, "remaining": 21, "skill": "4.00", "reqs": [1, 2, 4, 7, 14], "acquired": 8}, {"no": 71, "name": "ガストン", "display": "ガストン", "max": 36, "remaining": 28, "skill": "4.00", "reqs": [1, 2, 4, 8, 20], "acquired": 8}, {"no": 72, "name": "ルミエール", "display": "ルミエール", "max": 29, "remaining": 27, "skill": "2.00", "reqs": [1, 2, 4, 7, 14], "acquired": 2}, {"no": 73, "name": "フリン", "display": "フリン・ライダー", "max": 32, "remaining": 26, "skill": "3.50", "reqs": [1, 2, 4, 8, 16], "acquired": 6}, {"no": 74, "name": "マキシマス", "display": "マキシマス", "max": 29, "remaining": 28, "skill": "1.00", "reqs": [1, 2, 4, 7, 14], "acquired": 1}, {"no": 75, "name": "ムーラン", "display": "ムーラン", "max": 32, "remaining": 24, "skill": "4.00", "reqs": [1, 2, 4, 8, 16], "acquired": 8}, {"no": 76, "name": "ポカホンタス", "display": "ポカホンタス", "max": 32, "remaining": 27, "skill": "3.25", "reqs": [1, 2, 4, 8, 16], "acquired": 5}, {"no": 77, "name": "クルーズ", "display": "クルーズ・ラミレス", "max": 36, "remaining": 32, "skill": "3.00", "reqs": [1, 2, 4, 8, 20], "acquired": 4}, {"no": 78, "name": "ピーターパン", "display": "ピーター・パン", "max": 32, "remaining": 24, "skill": "4.00", "reqs": [1, 2, 4, 8, 16], "acquired": 8}, {"no": 79, "name": "パッチ", "display": "パッチ", "max": 29, "remaining": 27, "skill": "2.00", "reqs": [1, 2, 4, 7, 14], "acquired": 2}, {"no": 80, "name": "ティモシー", "display": "ティモシー", "max": 29, "remaining": 26, "skill": "2.50", "reqs": [1, 2, 4, 7, 14], "acquired": 3}, {"no": 81, "name": "青妖精", "display": "ブルー・フェアリー", "max": 36, "remaining": 29, "skill": "3.75", "reqs": [1, 2, 4, 8, 20], "acquired": 7}, {"no": 82, "name": "トランプ", "display": "トランプ", "max": 29, "remaining": 22, "skill": "3.75", "reqs": [1, 2, 4, 7, 14], "acquired": 7}, {"no": 83, "name": "王子", "display": "王子", "max": 29, "remaining": 26, "skill": "2.50", "reqs": [1, 2, 4, 7, 14], "acquired": 3}, {"no": 84, "name": "ブー", "display": "ブー", "max": 29, "remaining": 23, "skill": "3.50", "reqs": [1, 2, 4, 7, 14], "acquired": 6}, {"no": 85, "name": "フラワー", "display": "フラワー", "max": 29, "remaining": 25, "skill": "3.00", "reqs": [1, 2, 4, 7, 14], "acquired": 4}, {"no": 86, "name": "ダッチェス", "display": "ダッチェス", "max": 32, "remaining": 29, "skill": "2.50", "reqs": [1, 2, 4, 8, 16], "acquired": 3}, {"no": 87, "name": "ロビンフッド", "display": "ロビン・フッド", "max": 29, "remaining": 26, "skill": "2.50", "reqs": [1, 2, 4, 7, 14], "acquired": 3}, {"no": 88, "name": "ゴーテル", "display": "ゴーテル", "max": 29, "remaining": 24, "skill": "3.25", "reqs": [1, 2, 4, 7, 14], "acquired": 5}, {"no": 89, "name": "ハム", "display": "ハム", "max": 12, "remaining": 6, "skill": "4.00", "reqs": [1, 2, 2, 3, 3], "acquired": 6}, {"no": 90, "name": "ティモン", "display": "ティモン", "max": 29, "remaining": 24, "skill": "3.25", "reqs": [1, 2, 4, 7, 14], "acquired": 5}, {"no": 91, "name": "ラフィキ", "display": "ラフィキ", "max": 32, "remaining": 28, "skill": "3.00", "reqs": [1, 2, 4, 8, 16], "acquired": 4}, {"no": 92, "name": "クリストフ", "display": "クリストフ", "max": 29, "remaining": 29, "skill": "未所持", "reqs": [1, 2, 4, 7, 14], "acquired": 0}, {"no": 93, "name": "ラジャー", "display": "ラジャー", "max": 29, "remaining": 25, "skill": "3.00", "reqs": [1, 2, 4, 7, 14], "acquired": 4}, {"no": 94, "name": "レミー", "display": "レミー", "max": 32, "remaining": 27, "skill": "3.25", "reqs": [1, 2, 4, 8, 16], "acquired": 5}, {"no": 95, "name": "フリック", "display": "フリック", "max": 32, "remaining": 30, "skill": "2.00", "reqs": [1, 2, 4, 8, 16], "acquired": 2}, {"no": 96, "name": "ガントゥ", "display": "ガントゥ", "max": 36, "remaining": 32, "skill": "3.00", "reqs": [1, 2, 4, 8, 20], "acquired": 4}, {"no": 97, "name": "ワート", "display": "ワート", "max": 32, "remaining": 27, "skill": "3.25", "reqs": [1, 2, 4, 8, 16], "acquired": 5}, {"no": 98, "name": "マーリン", "display": "マーリン", "max": 29, "remaining": 26, "skill": "2.50", "reqs": [1, 2, 4, 7, 14], "acquired": 3}, {"no": 99, "name": "ダンテ", "display": "ダンテ", "max": 29, "remaining": 24, "skill": "3.25", "reqs": [1, 2, 4, 7, 14], "acquired": 5}, {"no": 100, "name": "ウェンディ", "display": "ウェンディ", "max": 32, "remaining": 28, "skill": "3.00", "reqs": [1, 2, 4, 8, 16], "acquired": 4}, {"no": 101, "name": "ジョン", "display": "ジョン", "max": 29, "remaining": 25, "skill": "3.00", "reqs": [1, 2, 4, 7, 14], "acquired": 4}, {"no": 102, "name": "フロロー", "display": "フロロー", "max": 29, "remaining": 24, "skill": "3.25", "reqs": [1, 2, 4, 7, 14], "acquired": 5}, {"no": 103, "name": "エリオット", "display": "エリオット", "max": 32, "remaining": 29, "skill": "2.50", "reqs": [1, 2, 4, 8, 16], "acquired": 3}, {"no": 104, "name": "ジョー", "display": "ジョー", "max": 32, "remaining": 26, "skill": "3.50", "reqs": [1, 2, 4, 8, 16], "acquired": 6}, {"no": 105, "name": "22番", "display": "22番", "max": 32, "remaining": 29, "skill": "2.50", "reqs": [1, 2, 4, 8, 16], "acquired": 3}, {"no": 106, "name": "ルシファー", "display": "ルシファー", "max": 29, "remaining": 24, "skill": "3.25", "reqs": [1, 2, 4, 7, 14], "acquired": 5}, {"no": 107, "name": "オリバー", "display": "オリバー", "max": 29, "remaining": 26, "skill": "2.50", "reqs": [1, 2, 4, 7, 14], "acquired": 3}, {"no": 108, "name": "イズマ", "display": "イズマ", "max": 29, "remaining": 24, "skill": "3.25", "reqs": [1, 2, 4, 7, 14], "acquired": 5}, {"no": 109, "name": "トレメイン夫人", "display": "トレメイン夫人", "max": 29, "remaining": 20, "skill": "4.14", "reqs": [1, 2, 4, 7, 14], "acquired": 9}, {"no": 110, "name": "ラーヤ", "display": "ラーヤ", "max": 36, "remaining": 32, "skill": "3.00", "reqs": [1, 2, 4, 8, 20], "acquired": 4}, {"no": 111, "name": "シスー", "display": "シスー", "max": 32, "remaining": 28, "skill": "3.00", "reqs": [1, 2, 4, 8, 16], "acquired": 4}, {"no": 112, "name": "ハンク", "display": "ハンク", "max": 29, "remaining": 20, "skill": "4.14", "reqs": [1, 2, 4, 7, 14], "acquired": 9}, {"no": 113, "name": "ヨロコビ", "display": "ヨロコビ", "max": 29, "remaining": 22, "skill": "3.75", "reqs": [1, 2, 4, 7, 14], "acquired": 7}, {"no": 114, "name": "カナシミ", "display": "カナシミ", "max": 29, "remaining": 28, "skill": "1.00", "reqs": [1, 2, 4, 7, 14], "acquired": 1}, {"no": 115, "name": "シアカーン", "display": "シア・カーン", "max": 32, "remaining": 27, "skill": "3.25", "reqs": [1, 2, 4, 8, 16], "acquired": 5}, {"no": 116, "name": "タマトア", "display": "タマトア", "max": 32, "remaining": 25, "skill": "3.75", "reqs": [1, 2, 4, 8, 16], "acquired": 7}, {"no": 117, "name": "ロズ", "display": "ロズ", "max": 32, "remaining": 25, "skill": "3.75", "reqs": [1, 2, 4, 8, 16], "acquired": 7}, {"no": 118, "name": "モンストロ", "display": "モンストロ", "max": 36, "remaining": 31, "skill": "3.25", "reqs": [1, 2, 4, 8, 20], "acquired": 5}, {"no": 119, "name": "ソックス", "display": "ソックス", "max": 29, "remaining": 24, "skill": "3.25", "reqs": [1, 2, 4, 7, 14], "acquired": 5}, {"no": 120, "name": "ルカパグーロ", "display": "ルカ・パグーロ", "max": 32, "remaining": 22, "skill": "4.25", "reqs": [1, 2, 4, 8, 16], "acquired": 10}, {"no": 121, "name": "メイリンリー", "display": "メイリン・リー", "max": 32, "remaining": 31, "skill": "1.00", "reqs": [1, 2, 4, 8, 16], "acquired": 1}, {"no": 122, "name": "ミラベル", "display": "ミラベル", "max": 32, "remaining": 27, "skill": "3.25", "reqs": [1, 2, 4, 8, 16], "acquired": 5}, {"no": 123, "name": "イサベラ", "display": "イサベラ", "max": 29, "remaining": 27, "skill": "2.00", "reqs": [1, 2, 4, 7, 14], "acquired": 2}, {"no": 124, "name": "正直ジョン", "display": "正直ジョン", "max": 32, "remaining": 28, "skill": "3.00", "reqs": [1, 2, 4, 8, 16], "acquired": 4}, {"no": 125, "name": "ギデオン", "display": "ギデオン", "max": 29, "remaining": 22, "skill": "3.75", "reqs": [1, 2, 4, 7, 14], "acquired": 7}, {"no": 126, "name": "カジモド", "display": "カジモド", "max": 29, "remaining": 19, "skill": "4.28", "reqs": [1, 2, 4, 7, 14], "acquired": 10}, {"no": 127, "name": "ヴァネッサ", "display": "ヴァネッサ", "max": 32, "remaining": 30, "skill": "2.00", "reqs": [1, 2, 4, 8, 16], "acquired": 2}, {"no": 128, "name": "トランプ兵", "display": "トランプ兵", "max": 29, "remaining": 29, "skill": "未所持", "reqs": [1, 2, 4, 7, 14], "acquired": 0}, {"no": 129, "name": "エンバー", "display": "エンバー", "max": 32, "remaining": 29, "skill": "2.50", "reqs": [1, 2, 4, 8, 16], "acquired": 3}, {"no": 130, "name": "ウェイド", "display": "ウェイド", "max": 32, "remaining": 30, "skill": "2.00", "reqs": [1, 2, 4, 8, 16], "acquired": 2}, {"no": 131, "name": "アーシャ", "display": "アーシャ", "max": 36, "remaining": 30, "skill": "3.50", "reqs": [1, 2, 4, 8, 20], "acquired": 6}, {"no": 132, "name": "ムーシュー", "display": "ムーシュー", "max": 29, "remaining": 24, "skill": "3.25", "reqs": [1, 2, 4, 7, 14], "acquired": 5}, {"no": 133, "name": "ハンス王子", "display": "ハンス王子", "max": 32, "remaining": 29, "skill": "2.50", "reqs": [1, 2, 4, 8, 16], "acquired": 3}, {"no": 134, "name": "マシュマロウ", "display": "マシュマロウ", "max": 29, "remaining": 23, "skill": "3.50", "reqs": [1, 2, 4, 7, 14], "acquired": 6}, {"no": 135, "name": "チーズ", "display": "チーズ", "max": 29, "remaining": 25, "skill": "3.00", "reqs": [1, 2, 4, 7, 14], "acquired": 4}, {"no": 136, "name": "デラクルス", "display": "エルネスト・デラクルス", "max": 32, "remaining": 30, "skill": "2.00", "reqs": [1, 2, 4, 8, 16], "acquired": 2}, {"no": 137, "name": "キャンディ大王", "display": "キャンディ大王", "max": 29, "remaining": 25, "skill": "3.00", "reqs": [1, 2, 4, 7, 14], "acquired": 4}, {"no": 138, "name": "ベルウェザー副市長", "display": "ベルウェザー副市長", "max": 29, "remaining": 23, "skill": "3.50", "reqs": [1, 2, 4, 7, 14], "acquired": 6}, {"no": 139, "name": "カー", "display": "カー", "max": 29, "remaining": 24, "skill": "3.25", "reqs": [1, 2, 4, 7, 14], "acquired": 5}, {"no": 140, "name": "魔法の洞窟", "display": "魔法の洞窟", "max": 36, "remaining": 34, "skill": "2.00", "reqs": [1, 2, 4, 8, 20], "acquired": 2}, {"no": 141, "name": "イアーゴ", "display": "イアーゴ", "max": 29, "remaining": 23, "skill": "3.50", "reqs": [1, 2, 4, 7, 14], "acquired": 6}, {"no": 142, "name": "スミー", "display": "スミー", "max": 32, "remaining": 28, "skill": "3.00", "reqs": [1, 2, 4, 8, 16], "acquired": 4}, {"no": 143, "name": "コトゥ", "display": "コトゥ", "max": 32, "remaining": 29, "skill": "2.50", "reqs": [1, 2, 4, 8, 16], "acquired": 3}, {"no": 144, "name": "イイナー", "display": "イイナー", "max": 29, "remaining": 25, "skill": "3.00", "reqs": [1, 2, 4, 7, 14], "acquired": 4}, {"no": 145, "name": "シンパイ", "display": "シンパイ", "max": 32, "remaining": 30, "skill": "2.00", "reqs": [1, 2, 4, 8, 16], "acquired": 2}, {"no": 146, "name": "ゲイリー", "display": "ゲイリー", "max": 32, "remaining": 30, "skill": "2.00", "reqs": [1, 2, 4, 8, 16], "acquired": 2}, {"no": 147, "name": "ダグ", "display": "ダグ", "max": 29, "remaining": 21, "skill": "4.75", "reqs": [1, 2, 4, 7, 14], "acquired": 8}, {"no": 148, "name": "ジムホーキンス", "display": "ジム・ホーキンス", "max": 32, "remaining": 16, "skill": "5.00", "reqs": [1, 2, 4, 8, 16], "acquired": 16}];
 var KEY = "premium_box_checker_v9_immediate";
@@ -2219,6 +2242,94 @@ function updateSkill(no, acquired) {
   document.getElementById("coin"+no).textContent = fmt(remaining * 30000);
 
   recalculateAll();
+}
+
+
+function normalizeName(s) {
+  return String(s || "").replace(/[\s・･·.。,:：()（）\[\]【】「」『』]/g, "").replace(/[ーｰ]/g, "ー").toLowerCase();
+}
+function levenshtein(a,b) {
+  a=normalizeName(a); b=normalizeName(b);
+  var d=[],i,j;
+  for(i=0;i<=a.length;i++){d[i]=[];d[i][0]=i;}
+  for(j=0;j<=b.length;j++) d[0][j]=j;
+  for(i=1;i<=a.length;i++) for(j=1;j<=b.length;j++)
+    d[i][j]=Math.min(d[i-1][j]+1,d[i][j-1]+1,d[i-1][j-1]+(a[i-1]===b[j-1]?0:1));
+  return d[a.length][b.length];
+}
+function bestTsumMatch(text) {
+  var best=null,bestScore=0;
+  for(var i=0;i<DATA.length;i++){
+    var names=[DATA[i].display,DATA[i].name];
+    for(var j=0;j<names.length;j++){
+      var a=normalizeName(text),b=normalizeName(names[j]);
+      if(!a||!b) continue;
+      var score=1-levenshtein(a,b)/Math.max(a.length,b.length,1);
+      if(a.indexOf(b)!==-1||b.indexOf(a)!==-1) score=Math.max(score,.9);
+      if(score>bestScore){bestScore=score;best=DATA[i];}
+    }
+  }
+  return bestScore>=.55?{tsum:best,score:bestScore}:null;
+}
+function openGachaModal(){document.getElementById("gachaModal").style.display="block";}
+function closeGachaModal(){document.getElementById("gachaModal").style.display="none";}
+function addManualGachaRow(name,count){
+  var wrap=document.getElementById("gachaResults"),row=document.createElement("div"),opts="";
+  row.className="detectRow";
+  for(var i=0;i<DATA.length;i++) opts+='<option value="'+DATA[i].name+'"'+(DATA[i].name===name?' selected':'')+'>'+DATA[i].display+'</option>';
+  row.innerHTML='<select class="gachaName">'+opts+'</select><input class="gachaCount" type="number" min="1" max="99" value="'+(count||1)+'"><button class="btn" type="button" onclick="this.parentNode.remove()">×</button>';
+  wrap.appendChild(row);
+}
+function applyGachaResults(){
+  var rows=document.querySelectorAll(".detectRow");
+  for(var i=0;i<rows.length;i++){
+    var name=rows[i].querySelector(".gachaName").value;
+    var count=Math.max(1,Number(rows[i].querySelector(".gachaCount").value)||1);
+    var t=null;
+    for(var j=0;j<DATA.length;j++) if(DATA[j].name===name){t=DATA[j];break;}
+    if(!t) continue;
+    var current=Number(STATE[t.name]); if(isNaN(current)) current=t.acquired;
+    STATE[t.name]=Math.min(t.max,current+count);
+  }
+  saveState(); recalculateAll(); closeGachaModal();
+}
+var gachaInput=document.getElementById("gachaShot");
+if(gachaInput){
+  gachaInput.addEventListener("change",function(e){
+    var files=Array.prototype.slice.call(e.target.files||[]);
+    if(!files.length) return;
+    openGachaModal();
+    document.getElementById("gachaResults").innerHTML="";
+    document.getElementById("gachaStatus").textContent="画像を読み取り中…";
+    if(!window.Tesseract){
+      document.getElementById("gachaStatus").textContent="OCRを読み込めませんでした。通信環境を確認してください。";
+      return;
+    }
+    (async function(){
+      var found={};
+      try{
+        for(var fi=0;fi<files.length;fi++){
+          document.getElementById("gachaStatus").textContent=(fi+1)+"/"+files.length+"枚目を解析中…";
+          var result=await Tesseract.recognize(files[fi],"jpn+eng");
+          var lines=((result.data&&result.data.text)||"").split(/\n/).map(function(x){return x.trim();}).filter(Boolean);
+          for(var li=0;li<lines.length;li++){
+            var m=bestTsumMatch(lines[li]);
+            if(m && (!found[m.tsum.name] || m.score>found[m.tsum.name].score)) found[m.tsum.name]=m;
+          }
+        }
+        var arr=Object.keys(found).map(function(k){return found[k];}).sort(function(a,b){return a.tsum.no-b.tsum.no;});
+        document.getElementById("gachaStatus").textContent=arr.length?arr.length+"件の候補を検出しました。確認して反映してください。":"候補を検出できませんでした。手動で追加できます。";
+        for(var ai=0;ai<arr.length;ai++) addManualGachaRow(arr[ai].tsum.name,1);
+      }catch(err){
+        document.getElementById("gachaStatus").textContent="読み取りに失敗しました。手動で候補を追加できます。";
+      }
+      var addBtn=document.createElement("button");
+      addBtn.className="btn"; addBtn.type="button"; addBtn.textContent="＋ 候補を追加";
+      addBtn.onclick=function(){addManualGachaRow(DATA[0].name,1);};
+      document.getElementById("gachaResults").appendChild(addBtn);
+      e.target.value="";
+    })();
+  });
 }
 
 function recalculateAll() {
