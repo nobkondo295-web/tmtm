@@ -46,6 +46,12 @@ input[type=file]{display:none}
 .detectRow{display:grid;grid-template-columns:1fr 76px 40px;gap:8px;align-items:center;border-bottom:1px solid var(--line);padding:9px 0}
 .detectRow select,.detectRow input{width:100%;padding:9px;border:1px solid #d7d7dc;border-radius:10px;background:#fff;font-size:15px}
 .sheetActions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:14px}.primary{background:var(--blue);color:#fff}
+.scanType{display:inline-block;padding:4px 8px;border-radius:999px;background:#eef6ff;color:#0877d1;font-size:12px;font-weight:700;margin-bottom:8px}
+.cropGrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin:8px 0}
+.cropCard{border:1px solid var(--line);border-radius:12px;padding:8px}
+.cropCard canvas{width:100%;border-radius:9px;background:#111}
+.cropCard .small{font-size:11px;color:var(--muted);margin-top:5px}
+@media(min-width:560px){.cropGrid{grid-template-columns:repeat(5,1fr)}}
 @media(max-width:520px){
   .app{padding:18px 12px 70px}
   .sum .val{font-size:19px}
@@ -2188,7 +2194,7 @@ input[type=file]{display:none}
       <button class="btn" onclick="closeGachaModal()">キャンセル</button>
     </div>
   </div>
-<div class="note">画像判定は、Game8の2026年8月時点の常設プレミアムBOX一覧・表記を候補辞書として使用し、画像を「原画像・高コントラスト・中央拡大」の3通りで解析して照合します。</div>
+<div class="note">画像判定は、今回いただいた単発・10連の実画面レイアウトを基準に自動判別します。単発はツム名表示部分を重点OCR、10連は4+4+2の10枠を個別に切り出して確認できるようにしています。</div>
 </div>
 
 <script>
@@ -2345,6 +2351,107 @@ function applyGachaResults(){
   saveState(); recalculateAll(); closeGachaModal();
 }
 
+
+function loadImageFile(file){
+  return new Promise(function(resolve,reject){
+    var img=new Image(), url=URL.createObjectURL(file);
+    img.onload=function(){ URL.revokeObjectURL(url); resolve(img); };
+    img.onerror=function(e){ URL.revokeObjectURL(url); reject(e); };
+    img.src=url;
+  });
+}
+
+function cropCanvas(img, xRatio, yRatio, wRatio, hRatio, scale, grayscale){
+  var sx=Math.floor(img.width*xRatio), sy=Math.floor(img.height*yRatio);
+  var sw=Math.floor(img.width*wRatio), sh=Math.floor(img.height*hRatio);
+  var c=document.createElement("canvas");
+  scale=scale||2;
+  c.width=Math.max(1,sw*scale); c.height=Math.max(1,sh*scale);
+  var ctx=c.getContext("2d");
+  ctx.drawImage(img,sx,sy,sw,sh,0,0,c.width,c.height);
+  if(grayscale){
+    var im=ctx.getImageData(0,0,c.width,c.height), d=im.data;
+    for(var i=0;i<d.length;i+=4){
+      var y=Math.round(.299*d[i]+.587*d[i+1]+.114*d[i+2]);
+      y = y<150 ? Math.max(0,y-55) : Math.min(255,y+55);
+      d[i]=d[i+1]=d[i+2]=y;
+    }
+    ctx.putImageData(im,0,0);
+  }
+  return c;
+}
+
+async function detectGachaLayout(file){
+  var img=await loadImageFile(file);
+
+  // Header/body OCR only: enough to separate the two sample layouts reliably.
+  var header=cropCanvas(img,.04,.20,.92,.28,2,true);
+  var r=await Tesseract.recognize(header,"jpn+eng",{tessedit_pageseg_mode:11});
+  var txt=((r.data&&r.data.text)||"").replace(/\s+/g,"");
+
+  if(txt.indexOf("BOX購入結果")!==-1 || txt.indexOf("BOX")!==-1){
+    return {type:"ten",img:img,headerText:txt};
+  }
+  // Single-pull sample prominently contains the large "スキル↑" heading.
+  if(txt.indexOf("スキル")!==-1){
+    return {type:"single",img:img,headerText:txt};
+  }
+
+  // Fallback by geometry: 10-pull has a large centered results panel, single has one large face.
+  // We still default to single because its name OCR is much more reliable than guessing ten-pull identities.
+  return {type:"single",img:img,headerText:txt};
+}
+
+async function readSinglePull(layout){
+  var img=layout.img, found={};
+
+  // In the supplied single-pull example, the Tsum name sits around 61–67% of screen height.
+  var nameCrop=cropCanvas(img,.15,.58,.70,.12,3,true);
+  var skillCrop=cropCanvas(img,.18,.63,.64,.16,3,true);
+
+  var nameRes=await Tesseract.recognize(nameCrop,"jpn+eng",{
+    tessedit_pageseg_mode:7,
+    preserve_interword_spaces:"1"
+  });
+  var nameText=(nameRes.data&&nameRes.data.text)||"";
+  collectMatchesFromText(nameText,found);
+
+  // Second pass over a slightly larger name area to catch anti-aliased white Japanese text.
+  var nameCrop2=cropCanvas(img,.10,.54,.80,.18,3,false);
+  var nameRes2=await Tesseract.recognize(nameCrop2,"jpn+eng",{tessedit_pageseg_mode:11});
+  collectMatchesFromText((nameRes2.data&&nameRes2.data.text)||"",found);
+
+  var skillRes=await Tesseract.recognize(skillCrop,"jpn+eng",{tessedit_pageseg_mode:11});
+  var skillText=(skillRes.data&&skillRes.data.text)||"";
+
+  var arr=Object.keys(found).map(function(k){return found[k];}).sort(function(a,b){return b.score-a.score;});
+  return {matches:arr.slice(0,3), nameText:nameText, skillText:skillText, preview:nameCrop};
+}
+
+function tenPullCells(img){
+  // Based on the supplied 10-pull result screen: 4 + 4 + 2 grid inside the central panel.
+  var cells=[];
+  var xs=[.12,.32,.52,.72], ys=[.36,.50,.65];
+  var w=.16,h=.12;
+  for(var r=0;r<2;r++) for(var c=0;c<4;c++) cells.push(cropCanvas(img,xs[c],ys[r],w,h,2,false));
+  for(var c2=0;c2<2;c2++) cells.push(cropCanvas(img,xs[c2],ys[2],w,h,2,false));
+  return cells;
+}
+
+async function readTenPull(layout){
+  var img=layout.img;
+  var cells=tenPullCells(img);
+  var results=[];
+
+  // Tsum names are not shown in the 10-pull screen.
+  // OCR is used for skill labels only; each image crop is presented for confirmation.
+  for(var i=0;i<cells.length;i++){
+    var r=await Tesseract.recognize(cells[i],"jpn+eng",{tessedit_pageseg_mode:11});
+    results.push({index:i+1,text:(r.data&&r.data.text)||"",canvas:cells[i]});
+  }
+  return {cells:results};
+}
+
 function preprocessForOCR(file, mode) {
   return new Promise(function(resolve, reject) {
     var img = new Image();
@@ -2401,6 +2508,7 @@ function collectMatchesFromText(text, bucket) {
   }
 }
 
+
 var gachaInput=document.getElementById("gachaShot");
 if(gachaInput){
   gachaInput.addEventListener("change",function(e){
@@ -2408,40 +2516,62 @@ if(gachaInput){
     if(!files.length) return;
     openGachaModal();
     document.getElementById("gachaResults").innerHTML="";
-    document.getElementById("gachaStatus").textContent="画像を読み取り中…";
+    document.getElementById("gachaStatus").textContent="ガチャ画面の種類を判定中…";
+
     if(!window.Tesseract){
       document.getElementById("gachaStatus").textContent="OCRを読み込めませんでした。通信環境を確認してください。";
       return;
     }
+
     (async function(){
-      var found={};
       try{
         for(var fi=0;fi<files.length;fi++){
-          document.getElementById("gachaStatus").textContent=(fi+1)+"/"+files.length+"枚目を解析中…";
-          var variants = [files[fi]];
-          try { variants.push(await preprocessForOCR(files[fi],"contrast")); } catch(e1) {}
-          try { variants.push(await preprocessForOCR(files[fi],"center")); } catch(e2) {}
+          var layout=await detectGachaLayout(files[fi]);
 
-          for (var vi=0; vi<variants.length; vi++) {
-            document.getElementById("gachaStatus").textContent =
-              (fi+1)+"/"+files.length+"枚目を解析中… ("+(vi+1)+"/"+variants.length+")";
-            var result=await Tesseract.recognize(variants[vi],"jpn+eng",{
-              tessedit_pageseg_mode: 11,
-              preserve_interword_spaces: "1"
-            });
-            collectMatchesFromText((result.data&&result.data.text)||"", found);
+          if(layout.type==="single"){
+            document.getElementById("gachaStatus").innerHTML='<span class="scanType">単発ガチャ</span><br>ツム名を重点解析中…';
+            var one=await readSinglePull(layout);
+            if(one.matches.length){
+              var top=one.matches[0];
+              addManualGachaRow(top.tsum.name,1);
+              document.getElementById("gachaStatus").innerHTML=
+                '<span class="scanType">単発ガチャ</span><br>候補: <b>'+top.tsum.display+
+                '</b>（一致度 '+Math.round(top.score*100)+'%）<br>確認してから反映してください。';
+            }else{
+              document.getElementById("gachaStatus").innerHTML=
+                '<span class="scanType">単発ガチャ</span><br>ツム名を特定できませんでした。手動で候補を追加してください。';
+            }
+
+          }else{
+            document.getElementById("gachaStatus").innerHTML=
+              '<span class="scanType">10連ガチャ</span><br>10枠を個別に切り出しています。10連画面にはツム名が表示されないため、画像候補は確認式にしています。';
+
+            var ten=await readTenPull(layout);
+            var grid=document.createElement("div");
+            grid.className="cropGrid";
+            for(var ci=0;ci<ten.cells.length;ci++){
+              var card=document.createElement("div");
+              card.className="cropCard";
+              card.appendChild(ten.cells[ci].canvas);
+              var cap=document.createElement("div");
+              cap.className="small";
+              cap.textContent=(ci+1)+"枠目";
+              card.appendChild(cap);
+              grid.appendChild(card);
+              addManualGachaRow(DATA[0].name,1);
+            }
+            document.getElementById("gachaResults").insertBefore(grid,document.getElementById("gachaResults").firstChild);
           }
         }
-        var arr=Object.keys(found).map(function(k){return found[k];}).sort(function(a,b){return a.tsum.no-b.tsum.no;});
-        document.getElementById("gachaStatus").textContent=arr.length?arr.length+"件の候補を検出しました。確認して反映してください。":"候補を検出できませんでした。手動で追加できます。";
-        for(var ai=0;ai<arr.length;ai++) addManualGachaRow(arr[ai].tsum.name,1);
+
+        var addBtn=document.createElement("button");
+        addBtn.className="btn"; addBtn.type="button"; addBtn.textContent="＋ 候補を追加";
+        addBtn.onclick=function(){addManualGachaRow(DATA[0].name,1);};
+        document.getElementById("gachaResults").appendChild(addBtn);
+
       }catch(err){
         document.getElementById("gachaStatus").textContent="読み取りに失敗しました。手動で候補を追加できます。";
       }
-      var addBtn=document.createElement("button");
-      addBtn.className="btn"; addBtn.type="button"; addBtn.textContent="＋ 候補を追加";
-      addBtn.onclick=function(){addManualGachaRow(DATA[0].name,1);};
-      document.getElementById("gachaResults").appendChild(addBtn);
       e.target.value="";
     })();
   });
