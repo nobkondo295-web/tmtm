@@ -2405,36 +2405,66 @@ async function detectGachaLayout(file){
 async function readSinglePull(layout){
   var img=layout.img, found={};
 
-  // In the supplied single-pull example, the Tsum name sits around 61–67% of screen height.
-  var nameCrop=cropCanvas(img,.15,.58,.70,.12,3,true);
-  var skillCrop=cropCanvas(img,.18,.63,.64,.16,3,true);
+  // Supplied single-pull screen:
+  // Tsum name is centered at ~56–60% of the full image height.
+  // Use a tight crop to avoid "スキル 3/6" and other UI text.
+  var nameTight=cropCanvas(img,.27,.552,.46,.058,4,false);
+  var nameGray=cropCanvas(img,.27,.552,.46,.058,4,true);
 
-  var nameRes=await Tesseract.recognize(nameCrop,"jpn+eng",{
-    tessedit_pageseg_mode:7,
-    preserve_interword_spaces:"1"
-  });
-  var nameText=(nameRes.data&&nameRes.data.text)||"";
-  collectMatchesFromText(nameText,found);
+  // Wider backup crop in case device scaling differs slightly.
+  var nameWide=cropCanvas(img,.18,.535,.64,.095,3,false);
+  var nameWideGray=cropCanvas(img,.18,.535,.64,.095,3,true);
 
-  // Second pass over a slightly larger name area to catch anti-aliased white Japanese text.
-  var nameCrop2=cropCanvas(img,.10,.54,.80,.18,3,false);
-  var nameRes2=await Tesseract.recognize(nameCrop2,"jpn+eng",{tessedit_pageseg_mode:11});
-  collectMatchesFromText((nameRes2.data&&nameRes2.data.text)||"",found);
+  var variants=[nameTight,nameGray,nameWide,nameWideGray];
+  var rawTexts=[];
 
-  var skillRes=await Tesseract.recognize(skillCrop,"jpn+eng",{tessedit_pageseg_mode:11});
-  var skillText=(skillRes.data&&skillRes.data.text)||"";
+  for(var vi=0;vi<variants.length;vi++){
+    // PSM 7 = single text line, PSM 8 = single word.
+    var r1=await Tesseract.recognize(variants[vi],"jpn+eng",{
+      tessedit_pageseg_mode: vi<2 ? 8 : 7,
+      preserve_interword_spaces:"1"
+    });
+    var tx=(r1.data&&r1.data.text)||"";
+    rawTexts.push(tx);
+    collectMatchesFromText(tx,found);
+  }
 
-  var arr=Object.keys(found).map(function(k){return found[k];}).sort(function(a,b){return b.score-a.score;});
-  return {matches:arr.slice(0,3), nameText:nameText, skillText:skillText, preview:nameCrop};
+  // Extra OCR over the whole info panel only as a fallback.
+  if(Object.keys(found).length===0){
+    var info=cropCanvas(img,.12,.535,.76,.18,3,true);
+    var r2=await Tesseract.recognize(info,"jpn+eng",{tessedit_pageseg_mode:11});
+    var tx2=(r2.data&&r2.data.text)||"";
+    rawTexts.push(tx2);
+    collectMatchesFromText(tx2,found);
+  }
+
+  var arr=Object.keys(found).map(function(k){return found[k];})
+    .sort(function(a,b){return b.score-a.score;});
+
+  return {
+    matches:arr.slice(0,5),
+    ocrText:rawTexts.join(" / "),
+    preview:nameTight
+  };
 }
 
 function tenPullCells(img){
-  // Based on the supplied 10-pull result screen: 4 + 4 + 2 grid inside the central panel.
+  // Calibrated to the supplied 706x1536 10-pull result screen.
+  // Shifted upward and tightened so each crop contains the complete Tsum face
+  // while excluding most of the skill gauge below.
   var cells=[];
-  var xs=[.12,.32,.52,.72], ys=[.36,.50,.65];
-  var w=.16,h=.12;
-  for(var r=0;r<2;r++) for(var c=0;c<4;c++) cells.push(cropCanvas(img,xs[c],ys[r],w,h,2,false));
-  for(var c2=0;c2<2;c2++) cells.push(cropCanvas(img,xs[c2],ys[2],w,h,2,false));
+  var xs=[.10,.30,.50,.70];
+  var ys=[.31,.455,.60];
+  var w=.18,h=.11;
+
+  for(var r=0;r<2;r++){
+    for(var c=0;c<4;c++){
+      cells.push(cropCanvas(img,xs[c],ys[r],w,h,3,false));
+    }
+  }
+  for(var c2=0;c2<2;c2++){
+    cells.push(cropCanvas(img,xs[c2],ys[2],w,h,3,false));
+  }
   return cells;
 }
 
@@ -2534,9 +2564,23 @@ if(gachaInput){
             if(one.matches.length){
               var top=one.matches[0];
               addManualGachaRow(top.tsum.name,1);
+
+              var pv=document.createElement("div");
+              pv.className="cropCard";
+              pv.appendChild(one.preview);
+              var pc=document.createElement("div");
+              pc.className="small";
+              pc.textContent="単発：ツム名の重点読取範囲";
+              pv.appendChild(pc);
+              document.getElementById("gachaResults").insertBefore(pv,document.getElementById("gachaResults").firstChild);
+
+              var cand=one.matches.map(function(x){
+                return x.tsum.display+" "+Math.round(x.score*100)+"%";
+              }).join(" / ");
+
               document.getElementById("gachaStatus").innerHTML=
-                '<span class="scanType">単発ガチャ</span><br>候補: <b>'+top.tsum.display+
-                '</b>（一致度 '+Math.round(top.score*100)+'%）<br>確認してから反映してください。';
+                '<span class="scanType">単発ガチャ</span><br>最有力: <b>'+top.tsum.display+
+                '</b><br>候補: '+cand+'<br>確認してから反映してください。';
             }else{
               document.getElementById("gachaStatus").innerHTML=
                 '<span class="scanType">単発ガチャ</span><br>ツム名を特定できませんでした。手動で候補を追加してください。';
@@ -2544,7 +2588,7 @@ if(gachaInput){
 
           }else{
             document.getElementById("gachaStatus").innerHTML=
-              '<span class="scanType">10連ガチャ</span><br>10枠を個別に切り出しています。10連画面にはツム名が表示されないため、画像候補は確認式にしています。';
+              '<span class="scanType">10連ガチャ</span><br>10枠を上方向へ補正して個別に切り出しています。各枠でキャラクターの顔全体が入る位置に調整しました。';
 
             var ten=await readTenPull(layout);
             var grid=document.createElement("div");
