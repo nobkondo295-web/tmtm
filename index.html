@@ -2598,18 +2598,13 @@ function bestMasterAcrossCrops(crops){
 }
 
 function singleImageCandidates(img){
-  var out=[];
-  // 第4版: 単発はプレビューがまだ大きい → さらに狭い範囲を中心に探索。
-  var specs=[
-    [.50,.45,.205,.120],[.50,.42,.205,.120],[.50,.48,.205,.120],
-    [.475,.45,.205,.120],[.525,.45,.205,.120],
-    [.50,.45,.185,.108],[.50,.45,.225,.132]
-  ];
-  for(var i=0;i<specs.length;i++){
-    var a=specs[i],cx=a[0],cy=a[1],w=a[2],h=a[3];
-    out.push({canvas:cropCanvas(img,cx-w/2,cy-h/2,w,h,1,false),meta:{cx:cx,cy:cy,w:w,h:h}});
-  }
-  return out;
+  // ユーザー指定の固定座標（%）をそのまま使用。
+  // 単発: X30-70, Y30-50
+  var x1=.30, x2=.70, y1=.30, y2=.50;
+  return [{
+    canvas:cropCanvas(img,x1,y1,x2-x1,y2-y1,1,false),
+    meta:{slot:0,x1:x1,y1:y1,x2:x2,y2:y2,fixed:true}
+  }];
 }
 
 async function detectGachaLayout(file){
@@ -2670,33 +2665,26 @@ async function readSinglePull(layout){
 }
 
 function tenPullCellCandidates(img,probeOnly){
-  // 第4版: ユーザーが確認したプレビュー方向から、各枠を個別に逆方向へ補正。
-  // 9/10は下へ画面外だったため大きく上へ。7は中央なので位置維持。
-  var slots=[
-    {x:.090,y:.285,row:0}, // 1 右下→左上
-    {x:.285,y:.350,row:0}, // 2 右→左
-    {x:.610,y:.350,row:0}, // 3 中央
-    {x:.925,y:.350,row:0}, // 4 左→右
-    {x:.075,y:.610,row:1}, // 5 右上→左下
-    {x:.585,y:.655,row:1}, // 6 上→下
-    {x:.610,y:.540,row:1}, // 7 中央
-    {x:.925,y:.615,row:1}, // 8 左上→右下
-    {x:.170,y:.500,row:2}, // 9 下画面外→大きく上
-    {x:.390,y:.500,row:2}  // 10 下画面外→大きく上
+  // ユーザー指定の固定座標（%）をそのまま使用。自動探索・位置補正は行わない。
+  var boxes=[
+    {x1:.13,x2:.28,y1:.33,y2:.40,row:0}, // 1
+    {x1:.33,x2:.48,y1:.33,y2:.40,row:0}, // 2
+    {x1:.54,x2:.68,y1:.33,y2:.40,row:0}, // 3
+    {x1:.75,x2:.87,y1:.33,y2:.40,row:0}, // 4
+    {x1:.13,x2:.28,y1:.46,y2:.53,row:1}, // 5
+    {x1:.33,x2:.48,y1:.46,y2:.53,row:1}, // 6
+    {x1:.54,x2:.68,y1:.46,y2:.53,row:1}, // 7
+    {x1:.75,x2:.87,y1:.46,y2:.53,row:1}, // 8
+    {x1:.13,x2:.28,y1:.59,y2:.65,row:2}, // 9
+    {x1:.33,x2:.48,y1:.59,y2:.65,row:2}  // 10
   ];
   var all=[];
-  for(var si=0;si<slots.length;si++){
-    var slot=slots[si],candidates=[];
-    var specs=probeOnly ? [[0,0,.145,.092]] : [
-      [0,0,.145,.092],[-.012,0,.145,.092],[.012,0,.145,.092],
-      [0,-.012,.145,.092],[0,.012,.145,.092],
-      [0,0,.132,.084],[0,0,.158,.100]
-    ];
-    for(var k=0;k<specs.length;k++){
-      var q=specs[k],cx=slot.x+q[0],cy=slot.y+q[1],w=q[2],h=q[3];
-      candidates.push({canvas:cropCanvas(img,cx-w/2,cy-h/2,w,h,1,false),meta:{slot:si,row:slot.row,cx:cx,cy:cy,w:w,h:h}});
-    }
-    all.push(candidates);
+  for(var si=0;si<boxes.length;si++){
+    var b=boxes[si];
+    all.push([{
+      canvas:cropCanvas(img,b.x1,b.y1,b.x2-b.x1,b.y2-b.y1,1,false),
+      meta:{slot:si,row:b.row,x1:b.x1,y1:b.y1,x2:b.x2,y2:b.y2,fixed:true}
+    }]);
   }
   return all;
 }
@@ -2805,7 +2793,7 @@ if(gachaInput){
           var layout=await detectGachaLayout(files[fi]);
 
           if(layout.type==="single"){
-            document.getElementById("gachaStatus").innerHTML='<span class="scanType">単発ガチャ</span><br>画像認識マスターを主判定にして解析中…';
+            document.getElementById("gachaStatus").innerHTML='<span class="scanType">単発ガチャ</span><br>固定座標 X30-70 / Y30-50 で切り出して解析中…';
             var one=await readSinglePull(layout);
             if(one.matches.length){
               var top=one.matches[0];
@@ -2834,7 +2822,7 @@ if(gachaInput){
 
           }else{
             document.getElementById("gachaStatus").innerHTML=
-              '<span class="scanType">10連ガチャ</span><br>10枠を自動探索し、各枠を148体の画像認識マスターと照合中…';
+              '<span class="scanType">10連ガチャ</span><br>ユーザー指定の固定座標で10枠を切り出し、148体の画像認識マスターと照合中…';
 
             var ten=await readTenPull(layout);
             var grid=document.createElement("div");
