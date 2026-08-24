@@ -2599,14 +2599,20 @@ function bestMasterAcrossCrops(crops){
 
 function singleImageCandidates(img){
   var out=[];
-  // ガチャ単発は中央に大きなツムが表示される。位置・端末差を吸収するため複数窓を走査。
-  var ys=[.20,.24,.28,.32,.36,.40,.44,.48];
-  var ws=[.34,.40,.46,.52];
-  for(var yi=0;yi<ys.length;yi++){
-    for(var wi=0;wi<ws.length;wi++){
-      var w=ws[wi],h=w*img.width/img.height*1.12;
-      h=Math.max(.13,Math.min(.27,h));
-      out.push({canvas:cropCanvas(img,(1-w)/2,ys[yi],w,h,3,false),meta:{y:ys[yi],w:w,h:h}});
+  // 単発は端末や演出でツムの上下位置がかなり変わるため、中央付近を広めに走査する。
+  // 以前は縦方向の探索範囲が狭く、顔の上半分・下半分だけを切り出すケースがあった。
+  var centersY=[.25,.30,.35,.40,.45,.50,.55,.60];
+  var widths=[.30,.36,.42,.48,.54,.60];
+  var heights=[.18,.22,.26,.30,.34];
+  var xOffsets=[-.035,0,.035];
+  for(var yi=0;yi<centersY.length;yi++){
+    for(var wi=0;wi<widths.length;wi++){
+      for(var hi=0;hi<heights.length;hi++){
+        for(var xi=0;xi<xOffsets.length;xi++){
+          var w=widths[wi],h=heights[hi],cx=.5+xOffsets[xi],cy=centersY[yi];
+          out.push({canvas:cropCanvas(img,cx-w/2,cy-h/2,w,h,2,false),meta:{cx:cx,cy:cy,w:w,h:h}});
+        }
+      }
     }
   }
   return out;
@@ -2646,10 +2652,11 @@ async function readSinglePull(layout){
 
   // 2) OCRは補助。名称が読めた場合は画像スコアと統合。
   var ocrCrops=[
-    cropCanvas(img,.15,.46,.70,.12,3,false),
-    cropCanvas(img,.15,.52,.70,.12,3,false),
-    cropCanvas(img,.15,.58,.70,.12,3,false),
-    cropCanvas(img,.15,.46,.70,.18,3,true)
+    cropCanvas(img,.05,.18,.90,.62,2,false),
+    cropCanvas(img,.08,.28,.84,.28,3,false),
+    cropCanvas(img,.08,.40,.84,.28,3,false),
+    cropCanvas(img,.08,.52,.84,.24,3,false),
+    cropCanvas(img,.05,.20,.90,.58,2,true)
   ];
   var rawTexts=[];
   for(var oi=0;oi<ocrCrops.length;oi++){
@@ -2669,20 +2676,35 @@ async function readSinglePull(layout){
 }
 
 function tenPullCellCandidates(img,probeOnly){
-  // 4+4+2配置。固定切り出しではなく、各基準点の周囲を複数オフセット・サイズで探索。
-  var centersX=[.17,.39,.61,.83], rowsY=[.35,.52,.69];
+  // 10連結果は公式画面どおり 4+4+2 配置。
+  // 重要: 画像全体に対する固定Y座標だけでは端末差・ステータスバー・演出差でズレるため、
+  // 各「行の専用帯」の中だけを探索する。これで隣の行のツムを誤って拾いにくくする。
+  var centersX=[.17,.39,.61,.83];
+  var rowBands=probeOnly ? [[.31,.39],[.49,.57],[.66,.74]] : [[.24,.43],[.43,.62],[.61,.82]];
   var slots=[];
-  for(var r=0;r<2;r++) for(var c=0;c<4;c++) slots.push([centersX[c],rowsY[r]]);
-  slots.push([centersX[1],rowsY[2]],[centersX[2],rowsY[2]]);
+  for(var r=0;r<2;r++) for(var c=0;c<4;c++) slots.push({x:centersX[c],row:r});
+  slots.push({x:centersX[1],row:2},{x:centersX[2],row:2});
+
   var all=[];
   for(var si=0;si<slots.length;si++){
-    var cx=slots[si][0],cy=slots[si][1], candidates=[];
-    var offsets=probeOnly?[[0,0]]:[[0,0],[-.025,0],[.025,0],[0,-.025],[0,.025],[-.018,-.018],[.018,-.018],[-.018,.018],[.018,.018]];
-    var widths=probeOnly?[.18]:[.16,.18,.20,.22];
-    for(var oi=0;oi<offsets.length;oi++) for(var wi=0;wi<widths.length;wi++){
-      var w=widths[wi], h=w*img.width/img.height*1.15;
-      h=Math.max(.085,Math.min(.145,h));
-      candidates.push({canvas:cropCanvas(img,cx+offsets[oi][0]-w/2,cy+offsets[oi][1]-h/2,w,h,3,false),meta:{slot:si,cx:cx,cy:cy,w:w,h:h}});
+    var slot=slots[si], candidates=[];
+    var band=rowBands[slot.row];
+    var ySteps=probeOnly?1:7;
+    var xOffsets=probeOnly?[0]:[-.028,-.014,0,.014,.028];
+    var widths=probeOnly?[.18]:[.145,.165,.185,.205,.225];
+    var heights=probeOnly?[.11]:[.090,.110,.130,.150,.170];
+
+    for(var yi=0;yi<ySteps;yi++){
+      var cy=(ySteps===1)?(band[0]+band[1])/2:band[0]+(band[1]-band[0])*yi/(ySteps-1);
+      for(var xi=0;xi<xOffsets.length;xi++){
+        var cx=slot.x+xOffsets[xi];
+        for(var wi=0;wi<widths.length;wi++){
+          for(var hi=0;hi<heights.length;hi++){
+            var w=widths[wi],h=heights[hi];
+            candidates.push({canvas:cropCanvas(img,cx-w/2,cy-h/2,w,h,2,false),meta:{slot:si,row:slot.row,cx:cx,cy:cy,w:w,h:h}});
+          }
+        }
+      }
     }
     all.push(candidates);
   }
