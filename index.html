@@ -2451,14 +2451,18 @@ function initEmbeddedRecognitionMaster(){
 
 
 function cropVariantsFromBase(img, box){
-  var dx=[0,-.02,.02,0,0,-.01,.01];
-  var dy=[0,0,0,-.02,.02,-.01,.01];
-  var scales=[1,1,1,1,1,.94,1.06];
+  // ユーザー指定座標の中心位置は固定。
+  // 認識精度向上のため、同じ中心のままサイズだけ3段階で比較する。
+  var scales=[1.00,.96,1.04];
   var out=[];
-  for(var i=0;i<dx.length;i++){
-    var w=box[2]*scales[i], h=box[3]*scales[i];
-    var x=box[0]+dx[i]-(w-box[2])/2;
-    var y=box[1]+dy[i]-(h-box[3])/2;
+  var cx=box[0]+box[2]/2;
+  var cy=box[1]+box[3]/2;
+
+  for(var i=0;i<scales.length;i++){
+    var w=box[2]*scales[i];
+    var h=box[3]*scales[i];
+    var x=cx-w/2;
+    var y=cy-h/2;
     x=Math.max(0,Math.min(1-w,x));
     y=Math.max(0,Math.min(1-h,y));
     out.push(cropCanvas(img,x,y,w,h,3,false));
@@ -2607,19 +2611,26 @@ function teacherBoost(name,score){
 }
 
 function compareMultiCrop(img, box){
-  var variants=cropVariantsFromBase(img,box), bestByName={}, bestCanvasByName={};
+  var variants=cropVariantsFromBase(img,box), bestByName={};
+
   for(var v=0;v<variants.length;v++){
     var arr=compareAdvanced(variants[v]);
     for(var i=0;i<arr.length;i++){
-      arr[i].score=teacherBoost(arr[i].master.name,arr[i].score); var n=arr[i].master.name;
+      arr[i].score=teacherBoost(arr[i].master.name,arr[i].score);
+      var n=arr[i].master.name;
       if(!bestByName[n] || arr[i].score>bestByName[n].score){
-        bestByName[n]=arr[i];bestCanvasByName[n]=variants[v];
+        bestByName[n]=arr[i];
       }
     }
   }
+
   var out=Object.keys(bestByName).map(function(k){return bestByName[k];});
   out.sort(function(a,b){return b.score-a.score;});
-  return {matches:out.slice(0,5),canvas:(out.length?bestCanvasByName[out[0].master.name]:variants[0])};
+
+  // プレビューは必ずユーザー指定の固定座標をそのまま使用
+  var exact=cropCanvas(img,box[0],box[1],box[2],box[3],3,false);
+
+  return {matches:out.slice(0,5),canvas:exact};
 }
 
 function recognitionMasterStatus(){
