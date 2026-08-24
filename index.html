@@ -2474,7 +2474,12 @@ function subjectMaskCanvas(source){
   var tmp=document.createElement("canvas");
   tmp.width=128;tmp.height=128;
   var ctx=tmp.getContext("2d");
-  ctx.drawImage(source,0,0,128,128);
+  var sw=source.width||source.naturalWidth||128, sh=source.height||source.naturalHeight||128;
+  var scale=Math.min(128/sw,128/sh);
+  var dw=sw*scale, dh=sh*scale;
+  var ox=(128-dw)/2, oy=(128-dh)/2;
+  ctx.clearRect(0,0,128,128);
+  ctx.drawImage(source,0,0,sw,sh,ox,oy,dw,dh);
   var im=ctx.getImageData(0,0,128,128),d=im.data;
 
   // Estimate background from border samples.
@@ -2601,14 +2606,6 @@ function compareAdvanced(canvas){
 }
 
 
-var GACHA_TEACHER_HINTS = [
-  "カー","シスー","エルサ","ジェシー","ジャファー","ランドール",
-  "魔法の洞窟","スミー","プー","バースデーアナ","ギデオン"
-];
-
-function teacherBoost(name,score){
-  return GACHA_TEACHER_HINTS.indexOf(name)>=0 ? Math.min(1,score+0.018) : score;
-}
 
 function compareMultiCrop(img, box){
   var variants=cropVariantsFromBase(img,box), bestByName={};
@@ -2818,37 +2815,23 @@ async function readSinglePull(layout){
   return {matches:arr,preview:cm.canvas,ocrText:""};
 }
 
+var TEN_PULL_BOXES=[
+  [.13,.33,.15,.07],[.33,.33,.15,.07],[.54,.33,.14,.07],[.74,.33,.14,.07],
+  [.13,.46,.15,.07],[.33,.46,.15,.07],[.54,.46,.14,.07],[.74,.46,.14,.07],
+  [.13,.59,.15,.06],[.33,.59,.15,.06]
+];
+
 function tenPullCellCandidates(img,probeOnly){
-  // ユーザー指定の固定座標（%）をそのまま使用。自動探索・位置補正は行わない。
-  var boxes=[
-    {x1:.13,x2:.28,y1:.33,y2:.40,row:0}, // 1
-    {x1:.33,x2:.48,y1:.33,y2:.40,row:0}, // 2
-    {x1:.54,x2:.68,y1:.33,y2:.40,row:0}, // 3
-    {x1:.74,x2:.88,y1:.33,y2:.40,row:0}, // 4
-    {x1:.13,x2:.28,y1:.46,y2:.53,row:1}, // 5
-    {x1:.33,x2:.48,y1:.46,y2:.53,row:1}, // 6
-    {x1:.54,x2:.68,y1:.46,y2:.53,row:1}, // 7
-    {x1:.74,x2:.88,y1:.46,y2:.53,row:1}, // 8
-    {x1:.13,x2:.28,y1:.59,y2:.65,row:2}, // 9
-    {x1:.33,x2:.48,y1:.59,y2:.65,row:2}  // 10
-  ];
   var all=[];
-  for(var si=0;si<boxes.length;si++){
-    var b=boxes[si];
-    all.push([{
-      canvas:cropCanvas(img,b.x1,b.y1,b.x2-b.x1,b.y2-b.y1,1,false),
-      meta:{slot:si,row:b.row,x1:b.x1,y1:b.y1,x2:b.x2,y2:b.y2,fixed:true}
-    }]);
+  for(var i=0;i<TEN_PULL_BOXES.length;i++){
+    var b=TEN_PULL_BOXES[i];
+    all.push({canvas:cropCanvas(img,b[0],b[1],b[2],b[3],probeOnly?1:3,false)});
   }
   return all;
 }
 
 async function readTenPull(layout){
-  var boxes=[
-    [.13,.33,.15,.07],[.33,.33,.15,.07],[.54,.33,.14,.07],[.74,.33,.14,.07],
-    [.13,.46,.15,.07],[.33,.46,.15,.07],[.54,.46,.14,.07],[.74,.46,.14,.07],
-    [.13,.59,.15,.06],[.33,.59,.15,.06]
-  ];
+  var boxes=TEN_PULL_BOXES;
   var results=[];
   for(var i=0;i<boxes.length;i++){
     var cm=compareMultiCrop(layout.img,boxes[i]);
