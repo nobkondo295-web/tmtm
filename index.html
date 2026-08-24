@@ -2599,21 +2599,16 @@ function bestMasterAcrossCrops(crops){
 
 function singleImageCandidates(img){
   var out=[];
-  // 単発は端末や演出でツムの上下位置がかなり変わるため、中央付近を広めに走査する。
-  // 以前は縦方向の探索範囲が狭く、顔の上半分・下半分だけを切り出すケースがあった。
-  var centersY=[.25,.30,.35,.40,.45,.50,.55,.60];
-  var widths=[.30,.36,.42,.48,.54,.60];
-  var heights=[.18,.22,.26,.30,.34];
-  var xOffsets=[-.035,0,.035];
-  for(var yi=0;yi<centersY.length;yi++){
-    for(var wi=0;wi<widths.length;wi++){
-      for(var hi=0;hi<heights.length;hi++){
-        for(var xi=0;xi<xOffsets.length;xi++){
-          var w=widths[wi],h=heights[hi],cx=.5+xOffsets[xi],cy=centersY[yi];
-          out.push({canvas:cropCanvas(img,cx-w/2,cy-h/2,w,h,2,false),meta:{cx:cx,cy:cy,w:w,h:h}});
-        }
-      }
-    }
+  // iPhoneで大量canvasを一度に生成するとメモリ不足で読み込み失敗するため、
+  // 候補数を絞りつつ位置・大きさの差はカバーする。
+  var specs=[
+    [.50,.34,.44,.25],[.50,.39,.44,.25],[.50,.44,.44,.25],[.50,.49,.44,.25],
+    [.50,.39,.36,.21],[.50,.44,.36,.21],[.50,.39,.52,.29],[.50,.44,.52,.29],
+    [.47,.39,.44,.25],[.53,.39,.44,.25],[.47,.44,.44,.25],[.53,.44,.44,.25]
+  ];
+  for(var i=0;i<specs.length;i++){
+    var a=specs[i],cx=a[0],cy=a[1],w=a[2],h=a[3];
+    out.push({canvas:cropCanvas(img,cx-w/2,cy-h/2,w,h,1,false),meta:{cx:cx,cy:cy,w:w,h:h}});
   }
   return out;
 }
@@ -2676,35 +2671,26 @@ async function readSinglePull(layout){
 }
 
 function tenPullCellCandidates(img,probeOnly){
-  // 10連結果は公式画面どおり 4+4+2 配置。
-  // 重要: 画像全体に対する固定Y座標だけでは端末差・ステータスバー・演出差でズレるため、
-  // 各「行の専用帯」の中だけを探索する。これで隣の行のツムを誤って拾いにくくする。
+  // 10連結果は 4+4+2。大量canvas生成によるiPhoneのメモリ不足を避けるため、
+  // 各枠は少数の位置補正候補だけを作る。これで読み込みエラーを防ぐ。
   var centersX=[.17,.39,.61,.83];
-  var rowBands=probeOnly ? [[.31,.39],[.49,.57],[.66,.74]] : [[.24,.43],[.43,.62],[.61,.82]];
+  var centersY=[.35,.54,.72];
   var slots=[];
-  for(var r=0;r<2;r++) for(var c=0;c<4;c++) slots.push({x:centersX[c],row:r});
-  slots.push({x:centersX[1],row:2},{x:centersX[2],row:2});
+  for(var r=0;r<2;r++) for(var c=0;c<4;c++) slots.push({x:centersX[c],y:centersY[r],row:r});
+  slots.push({x:centersX[1],y:centersY[2],row:2},{x:centersX[2],y:centersY[2],row:2});
 
   var all=[];
   for(var si=0;si<slots.length;si++){
     var slot=slots[si], candidates=[];
-    var band=rowBands[slot.row];
-    var ySteps=probeOnly?1:7;
-    var xOffsets=probeOnly?[0]:[-.028,-.014,0,.014,.028];
-    var widths=probeOnly?[.18]:[.145,.165,.185,.205,.225];
-    var heights=probeOnly?[.11]:[.090,.110,.130,.150,.170];
-
-    for(var yi=0;yi<ySteps;yi++){
-      var cy=(ySteps===1)?(band[0]+band[1])/2:band[0]+(band[1]-band[0])*yi/(ySteps-1);
-      for(var xi=0;xi<xOffsets.length;xi++){
-        var cx=slot.x+xOffsets[xi];
-        for(var wi=0;wi<widths.length;wi++){
-          for(var hi=0;hi<heights.length;hi++){
-            var w=widths[wi],h=heights[hi];
-            candidates.push({canvas:cropCanvas(img,cx-w/2,cy-h/2,w,h,2,false),meta:{slot:si,row:slot.row,cx:cx,cy:cy,w:w,h:h}});
-          }
-        }
-      }
+    var specs=probeOnly ? [[0,0,.18,.11]] : [
+      [0,0,.18,.12],[0,-.025,.18,.12],[0,.025,.18,.12],
+      [-.018,0,.18,.12],[.018,0,.18,.12],
+      [0,0,.16,.105],[0,0,.20,.135],
+      [0,-.04,.20,.135],[0,.04,.20,.135]
+    ];
+    for(var k=0;k<specs.length;k++){
+      var q=specs[k],cx=slot.x+q[0],cy=slot.y+q[1],w=q[2],h=q[3];
+      candidates.push({canvas:cropCanvas(img,cx-w/2,cy-h/2,w,h,1,false),meta:{slot:si,row:slot.row,cx:cx,cy:cy,w:w,h:h}});
     }
     all.push(candidates);
   }
@@ -2876,7 +2862,7 @@ if(gachaInput){
         document.getElementById("gachaResults").appendChild(addBtn);
 
       }catch(err){
-        document.getElementById("gachaStatus").textContent="読み取りに失敗しました。手動で候補を追加できます。";
+        document.getElementById("gachaStatus").textContent="読み取りに失敗しました: "+((err&&err.message)?err.message:String(err||"不明なエラー"));
       }
       e.target.value="";
     })();
