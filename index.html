@@ -2441,12 +2441,185 @@ function initEmbeddedRecognitionMaster(){
       var c=document.createElement("canvas");
       c.width=img.naturalWidth;c.height=img.naturalHeight;
       c.getContext("2d").drawImage(img,0,0);
-      registerReferenceImage(ref.name,c);
+      registerReferenceImage(ref.name,c); registerAdvancedReference(ref.name,c);
       pending--;if(pending===0)recalculateAll();
     };
     img.onerror=function(){pending--;if(pending===0)recalculateAll();};
     img.src=ref.image;
   });
+}
+
+
+function cropVariantsFromBase(img, box){
+  var dx=[0,-.02,.02,0,0,-.01,.01];
+  var dy=[0,0,0,-.02,.02,-.01,.01];
+  var scales=[1,1,1,1,1,.94,1.06];
+  var out=[];
+  for(var i=0;i<dx.length;i++){
+    var w=box[2]*scales[i], h=box[3]*scales[i];
+    var x=box[0]+dx[i]-(w-box[2])/2;
+    var y=box[1]+dy[i]-(h-box[3])/2;
+    x=Math.max(0,Math.min(1-w,x));
+    y=Math.max(0,Math.min(1-h,y));
+    out.push(cropCanvas(img,x,y,w,h,3,false));
+  }
+  return out;
+}
+
+function subjectMaskCanvas(source){
+  var tmp=document.createElement("canvas");
+  tmp.width=128;tmp.height=128;
+  var ctx=tmp.getContext("2d");
+  ctx.drawImage(source,0,0,128,128);
+  var im=ctx.getImageData(0,0,128,128),d=im.data;
+
+  // Estimate background from border samples.
+  var samples=[], br=0,bg=0,bb=0;
+  for(var i=0;i<128;i+=8){
+    samples.push((i)*4);
+    samples.push(((127*128+i))*4);
+    samples.push(((i*128))*4);
+    samples.push(((i*128+127))*4);
+  }
+  for(var si=0;si<samples.length;si++){var k=samples[si];br+=d[k];bg+=d[k+1];bb+=d[k+2];}
+  br/=samples.length;bg/=samples.length;bb/=samples.length;
+
+  // Weight center more, preserve ears/hats by soft mask.
+  var minX=127,minY=127,maxX=0,maxY=0,found=false;
+  for(var y=0;y<128;y++)for(var x=0;x<128;x++){
+    var k=(y*128+x)*4;
+    var dr=d[k]-br,dg=d[k+1]-bg,db=d[k+2]-bb;
+    var dist=Math.sqrt(dr*dr+dg*dg+db*db);
+    var cx=(x-64)/64, cy=(y-64)/64;
+    var central=1-Math.min(1,Math.sqrt(cx*cx+cy*cy));
+    var keep=dist > (30-10*central);
+    if(keep){
+      minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);found=true;
+    }
+  }
+  if(!found){minX=10;minY=8;maxX=118;maxY=120;}
+  var pad=8;
+  minX=Math.max(0,minX-pad);minY=Math.max(0,minY-pad);maxX=Math.min(127,maxX+pad);maxY=Math.min(127,maxY+pad);
+
+  var out=document.createElement("canvas");
+  out.width=96;out.height=96;
+  out.getContext("2d").drawImage(tmp,minX,minY,maxX-minX+1,maxY-minY+1,0,0,96,96);
+  return out;
+}
+
+function rgbToHsv(r,g,b){
+  r/=255;g/=255;b/=255;
+  var max=Math.max(r,g,b),min=Math.min(r,g,b),d=max-min,h=0;
+  if(d!==0){
+    if(max===r)h=((g-b)/d)%6;
+    else if(max===g)h=(b-r)/d+2;
+    else h=(r-g)/d+4;
+    h/=6;if(h<0)h+=1;
+  }
+  return [h,max===0?0:d/max,max];
+}
+
+function advancedFingerprint(canvas){
+  var c=subjectMaskCanvas(canvas),ctx=c.getContext("2d"),im=ctx.getImageData(0,0,96,96).data;
+  var hsvHist=new Array(36).fill(0), spatial=[], gray=[], edge=[], patches=[];
+  for(var y=0;y<96;y++)for(var x=0;x<96;x++){
+    var i=(y*96+x)*4,r=im[i],g=im[i+1],b=im[i+2];
+    var hsv=rgbToHsv(r,g,b);
+    var hb=Math.min(11,Math.floor(hsv[0]*12));
+    var sb=Math.min(2,Math.floor(hsv[1]*3));
+    hsvHist[hb*3+sb]++;
+    gray.push(.299*r+.587*g+.114*b);
+  }
+  for(var h=0;h<hsvHist.length;h++)hsvHist[h]/=(96*96);
+
+  // 8x8 spatial RGB
+  for(var by=0;by<8;by++)for(var bx=0;bx<8;bx++){
+    var sr=0,sg=0,sb=0,n=0;
+    for(var yy=by*12;yy<(by+1)*12;yy++)for(var xx=bx*12;xx<(bx+1)*12;xx++){
+      var j=(yy*96+xx)*4;sr+=im[j];sg+=im[j+1];sb+=im[j+2];n++;
+    }
+    spatial.push(sr/n/255,sg/n/255,sb/n/255);
+  }
+
+  // local patch descriptors around discriminative regions: top/eyes/center/bottom
+  var patchDefs=[[18,10,60,26],[18,30,60,24],[18,54,60,22],[8,20,24,50],[64,20,24,50]];
+  for(var p=0;p<patchDefs.length;p++){
+    var q=patchDefs[p],sr=0,sg=0,sb=0,n=0;
+    for(var yy=q[1];yy<q[1]+q[3];yy++)for(var xx=q[0];xx<q[0]+q[2];xx++){
+      var j=(yy*96+xx)*4;sr+=im[j];sg+=im[j+1];sb+=im[j+2];n++;
+    }
+    patches.push(sr/n/255,sg/n/255,sb/n/255);
+  }
+
+  // edge descriptor
+  for(var ey=2;ey<94;ey+=3)for(var ex=2;ex<94;ex+=3){
+    var idx=ey*96+ex;
+    var gx=Math.abs(gray[idx+1]-gray[idx-1]),gy=Math.abs(gray[idx+96]-gray[idx-96]);
+    edge.push(Math.min(1,(gx+gy)/180));
+  }
+  return {hsv:hsvHist,spatial:spatial,patches:patches,edge:edge};
+}
+
+function advancedSimilarity(a,b){
+  var hsv=cosineSimilarity(a.hsv,b.hsv);
+  var spatial=cosineSimilarity(a.spatial,b.spatial);
+  var patches=cosineSimilarity(a.patches,b.patches);
+  var ed=0,n=Math.min(a.edge.length,b.edge.length);
+  for(var i=0;i<n;i++)ed+=Math.abs(a.edge[i]-b.edge[i]);
+  var edge=1-ed/n;
+  return Math.max(0,Math.min(1,hsv*.22+spatial*.33+patches*.30+edge*.15));
+}
+
+function ensureAdvancedMaster(){
+  for(var i=0;i<RECOGNITION_MASTER.length;i++){
+    var m=RECOGNITION_MASTER[i];
+    if(!m.advancedFingerprints)m.advancedFingerprints=[];
+  }
+}
+
+function registerAdvancedReference(name,canvas){
+  var m=masterByName(name);
+  if(!m)return;
+  if(!m.advancedFingerprints)m.advancedFingerprints=[];
+  m.advancedFingerprints.push(advancedFingerprint(canvas));
+}
+
+function compareAdvanced(canvas){
+  var fp=advancedFingerprint(canvas),out=[];
+  for(var i=0;i<RECOGNITION_MASTER.length;i++){
+    var m=RECOGNITION_MASTER[i],best=0;
+    var arr=m.advancedFingerprints||[];
+    for(var j=0;j<arr.length;j++)best=Math.max(best,advancedSimilarity(fp,arr[j]));
+    if(best>0)out.push({master:m,score:best});
+  }
+  out.sort(function(a,b){return b.score-a.score;});
+  return out.slice(0,5);
+}
+
+
+var GACHA_TEACHER_HINTS = [
+  "カー","シスー","エルサ","ジェシー","ジャファー","ランドール",
+  "魔法の洞窟","スミー","プー","バースデーアナ","ギデオン"
+];
+
+function teacherBoost(name,score){
+  return GACHA_TEACHER_HINTS.indexOf(name)>=0 ? Math.min(1,score+0.018) : score;
+}
+
+function compareMultiCrop(img, box){
+  var variants=cropVariantsFromBase(img,box), bestByName={}, bestCanvasByName={};
+  for(var v=0;v<variants.length;v++){
+    var arr=compareAdvanced(variants[v]);
+    for(var i=0;i<arr.length;i++){
+      arr[i].score=teacherBoost(arr[i].master.name,arr[i].score); var n=arr[i].master.name;
+      if(!bestByName[n] || arr[i].score>bestByName[n].score){
+        bestByName[n]=arr[i];bestCanvasByName[n]=variants[v];
+      }
+    }
+  }
+  var out=Object.keys(bestByName).map(function(k){return bestByName[k];});
+  out.sort(function(a,b){return b.score-a.score;});
+  return {matches:out.slice(0,5),canvas:(out.length?bestCanvasByName[out[0].master.name]:variants[0])};
 }
 
 function recognitionMasterStatus(){
@@ -2628,40 +2801,10 @@ async function detectGachaLayout(file){
 }
 
 async function readSinglePull(layout){
-  var img=layout.img, found={};
-
-  // 1) 画像認識マスターを主判定にする。
-  var imageMatches=bestMasterAcrossCrops(singleImageCandidates(img));
-  for(var i=0;i<imageMatches.length;i++){
-    var m=imageMatches[i];
-    var d=null;
-    for(var k=0;k<DATA.length;k++) if(DATA[k].name===m.master.name){d=DATA[k];break;}
-    if(d) found[d.name]={tsum:d,score:m.score,source:"image",preview:m.canvas};
-  }
-
-  // 2) OCRは補助。名称が読めた場合は画像スコアと統合。
-  var ocrCrops=[
-    cropCanvas(img,.05,.18,.90,.62,2,false),
-    cropCanvas(img,.08,.28,.84,.28,3,false),
-    cropCanvas(img,.08,.40,.84,.28,3,false),
-    cropCanvas(img,.08,.52,.84,.24,3,false),
-    cropCanvas(img,.05,.20,.90,.58,2,true)
-  ];
-  var rawTexts=[];
-  for(var oi=0;oi<ocrCrops.length;oi++){
-    var tx=await safeOCR(ocrCrops[oi],oi<3?7:11); rawTexts.push(tx);
-    var tmp={}; collectMatchesFromText(tx,tmp);
-    Object.keys(tmp).forEach(function(name){
-      var om=tmp[name], existing=found[name];
-      // OCR単独で暴走しない。画像一致がある場合は強く加点、ない場合は控えめ。
-      var combined=existing ? Math.min(1,existing.score*.72+om.score*.28+.08) : om.score*.78;
-      if(!existing || combined>existing.score) found[name]={tsum:om.tsum,score:combined,source:existing?"image+ocr":"ocr",preview:existing?existing.preview:null};
-    });
-  }
-
-  var arr=Object.keys(found).map(function(k){return found[k];}).sort(function(a,b){return b.score-a.score;});
-  var preview=(arr[0]&&arr[0].preview)?arr[0].preview:singleImageCandidates(img)[0].canvas;
-  return {matches:arr.slice(0,5),ocrText:rawTexts.join(" / "),preview:preview};
+  var box=[.30,.30,.40,.20];
+  var cm=compareMultiCrop(layout.img,box);
+  var arr=cm.matches.map(function(x){return {tsum:x.master,score:x.score};});
+  return {matches:arr,preview:cm.canvas,ocrText:""};
 }
 
 function tenPullCellCandidates(img,probeOnly){
@@ -2670,11 +2813,11 @@ function tenPullCellCandidates(img,probeOnly){
     {x1:.13,x2:.28,y1:.33,y2:.40,row:0}, // 1
     {x1:.33,x2:.48,y1:.33,y2:.40,row:0}, // 2
     {x1:.54,x2:.68,y1:.33,y2:.40,row:0}, // 3
-    {x1:.75,x2:.87,y1:.33,y2:.40,row:0}, // 4
+    {x1:.74,x2:.88,y1:.33,y2:.40,row:0}, // 4
     {x1:.13,x2:.28,y1:.46,y2:.53,row:1}, // 5
     {x1:.33,x2:.48,y1:.46,y2:.53,row:1}, // 6
     {x1:.54,x2:.68,y1:.46,y2:.53,row:1}, // 7
-    {x1:.75,x2:.87,y1:.46,y2:.53,row:1}, // 8
+    {x1:.74,x2:.88,y1:.46,y2:.53,row:1}, // 8
     {x1:.13,x2:.28,y1:.59,y2:.65,row:2}, // 9
     {x1:.33,x2:.48,y1:.59,y2:.65,row:2}  // 10
   ];
@@ -2690,11 +2833,15 @@ function tenPullCellCandidates(img,probeOnly){
 }
 
 async function readTenPull(layout){
-  var img=layout.img, sets=tenPullCellCandidates(img,false),results=[];
-  for(var i=0;i<sets.length;i++){
-    var matches=bestMasterAcrossCrops(sets[i]);
-    var bestCanvas=(matches[0]&&matches[0].canvas)?matches[0].canvas:sets[i][0].canvas;
-    results.push({index:i+1,text:"",canvas:bestCanvas,imageMatches:matches});
+  var boxes=[
+    [.13,.33,.15,.07],[.33,.33,.15,.07],[.54,.33,.14,.07],[.74,.33,.14,.07],
+    [.13,.46,.15,.07],[.33,.46,.15,.07],[.54,.46,.14,.07],[.74,.46,.14,.07],
+    [.13,.59,.15,.06],[.33,.59,.15,.06]
+  ];
+  var results=[];
+  for(var i=0;i<boxes.length;i++){
+    var cm=compareMultiCrop(layout.img,boxes[i]);
+    results.push({index:i+1,text:"",canvas:cm.canvas,imageMatches:cm.matches});
   }
   return {cells:results};
 }
@@ -2841,7 +2988,7 @@ if(gachaInput){
               card.appendChild(cap);
               grid.appendChild(card);
               if(ims.length) addManualGachaRow(ims[0].master.name,1);
-              else addManualGachaRow(DATA[0].name,1);
+              else addManualGachaRow((ims&&ims.length?ims[0].master.name:DATA[0].name),1);
             }
             document.getElementById("gachaResults").insertBefore(grid,document.getElementById("gachaResults").firstChild);
             document.getElementById("gachaStatus").innerHTML='<span class="scanType">10連ガチャ</span><br>画像照合の最有力候補を10枠へ反映しました。「要確認」の枠だけ候補を確認してください。';
