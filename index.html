@@ -2613,7 +2613,6 @@ function compareMultiCrop(img, box){
   for(var v=0;v<variants.length;v++){
     var arr=compareAdvanced(variants[v]);
     for(var i=0;i<arr.length;i++){
-      arr[i].score=teacherBoost(arr[i].master.name,arr[i].score);
       var n=arr[i].master.name;
       if(!bestByName[n] || arr[i].score>bestByName[n].score){
         bestByName[n]=arr[i];
